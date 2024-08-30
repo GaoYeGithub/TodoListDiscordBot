@@ -1,10 +1,10 @@
 const { Client, GatewayIntentBits, SlashCommandBuilder } = require('discord.js');
-const yaml = require('js-yaml');
-const fs = require('fs');
+const PocketBase = require('pocketbase/cjs');
 const cron = require('node-cron');
 require('dotenv').config();
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.DirectMessages] });
+const pb = new PocketBase('http://127.0.0.1:8090/');
 
 const commands = [
   new SlashCommandBuilder()
@@ -45,20 +45,6 @@ const commands = [
     .addStringOption(option => option.setName('category').setDescription('New category or tag for the task'))
 ];
 
-const TODO_FILE = 'todo.yaml';
-
-function loadTodos() {
-  try {
-    return yaml.load(fs.readFileSync(TODO_FILE, 'utf8')) || [];
-  } catch (e) {
-    console.log('No existing todo file found. Starting with an empty list.');
-    return [];
-  }
-}
-
-function saveTodos(todos) {
-  fs.writeFileSync(TODO_FILE, yaml.dump(todos));
-}
 
 client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}!`);
@@ -120,96 +106,131 @@ async function handleAddCommand(interaction) {
       userId: interaction.user.id
     };
   
-    const todos = loadTodos();
-    todos.push(newTodo);
-    saveTodos(todos);
-  
-    await interaction.reply(`Added todo item: ${item}`);
+    try {
+      await pb.collection('todos').create(newTodo);
+      await interaction.reply(`Added todo item: ${item}`);
+    } catch (error) {
+      console.error('Error adding todo item:', error);
+      await interaction.reply('Failed to add todo item. Please try again.');
+    }
   }
 
 async function handleListCommand(interaction) {
-  const todos = loadTodos();
-  if (todos.length === 0) {
-    await interaction.reply('Your todo list is empty.');
-  } else {
-    const todoList = todos.map((todo, index) => {
-      let item = `${index + 1}. ${todo.item}`;
-      if (todo.dueDate) item += ` (Due: ${todo.dueDate})`;
-      if (todo.priority) item += ` [${todo.priority}]`;
-      if (todo.category) item += ` #${todo.category}`;
-      return item;
-    }).join('\n');
-    await interaction.reply(`Your todo list:\n${todoList}`);
+  try {
+    const records = await pb.collection('todos').getFullList({
+      sort: '-created',
+    });
+
+    if (records.length === 0) {
+      await interaction.reply('Your todo list is empty.');
+    } else {
+      const todoList = records.map((todo, index) => {
+        let item = `${index + 1}. ${todo.item}`;
+        if (todo.dueDate) item += ` (Due: ${todo.dueDate})`;
+        if (todo.priority) item += ` [${todo.priority}]`;
+        if (todo.category) item += ` #${todo.category}`;
+        return item;
+      }).join('\n');
+      await interaction.reply(`Your todo list:\n${todoList}`);
+    }
+  } catch (error) {
+    console.error('Error listing todos:', error);
+    await interaction.reply('Failed to list todo items. Please try again.');
   }
 }
 
 async function handleRemoveCommand(interaction) {
   const index = interaction.options.getInteger('index') - 1;
-  const todos = loadTodos();
-  if (index < 0 || index >= todos.length) {
-    await interaction.reply('Invalid index. Please provide a valid todo item number.');
-  } else {
-    const removedItem = todos.splice(index, 1)[0];
-    saveTodos(todos);
-    await interaction.reply(`Removed todo item: ${removedItem.item}`);
+  
+  try {
+    const records = await pb.collection('todos').getFullList({
+      sort: '-created',
+    });
+
+    if (index < 0 || index >= records.length) {
+      await interaction.reply('Invalid index. Please provide a valid todo item number.');
+    } else {
+      const removedItem = records[index];
+      await pb.collection('todos').delete(removedItem.id);
+      await interaction.reply(`Removed todo item: ${removedItem.item}`);
+    }
+  } catch (error) {
+    console.error('Error removing todo item:', error);
+    await interaction.reply('Failed to remove todo item. Please try again.');
   }
 }
 
 async function handleSearchCommand(interaction) {
   const keyword = interaction.options.getString('keyword').toLowerCase();
-  const todos = loadTodos();
-  const matchingTodos = todos.filter(todo => 
-    todo.item.toLowerCase().includes(keyword) ||
-    (todo.category && todo.category.toLowerCase().includes(keyword))
-  );
 
-  if (matchingTodos.length === 0) {
-    await interaction.reply('No matching todo items found.');
-  } else {
-    const todoList = matchingTodos.map((todo, index) => {
-      let item = `${index + 1}. ${todo.item}`;
-      if (todo.dueDate) item += ` (Due: ${todo.dueDate})`;
-      if (todo.priority) item += ` [${todo.priority}]`;
-      if (todo.category) item += ` #${todo.category}`;
-      return item;
-    }).join('\n');
-    await interaction.reply(`Matching todo items:\n${todoList}`);
+  try {
+    const records = await pb.collection('todos').getFullList({
+      filter: `item ~ "${keyword}" || category ~ "${keyword}"`,
+    });
+
+    if (records.length === 0) {
+      await interaction.reply('No matching todo items found.');
+    } else {
+      const todoList = records.map((todo, index) => {
+        let item = `${index + 1}. ${todo.item}`;
+        if (todo.dueDate) item += ` (Due: ${todo.dueDate})`;
+        if (todo.priority) item += ` [${todo.priority}]`;
+        if (todo.category) item += ` #${todo.category}`;
+        return item;
+      }).join('\n');
+      await interaction.reply(`Matching todo items:\n${todoList}`);
+    }
+  } catch (error) {
+    console.error('Error searching todos:', error);
+    await interaction.reply('Failed to search todo items. Please try again.');
   }
 }
 
 async function handleUpdateCommand(interaction) {
   const index = interaction.options.getInteger('index') - 1;
-  const todos = loadTodos();
-  if (index < 0 || index >= todos.length) {
-    await interaction.reply('Invalid index. Please provide a valid todo item number.');
-    return;
+
+  try {
+    const records = await pb.collection('todos').getFullList({
+      sort: '-created',
+    });
+
+    if (index < 0 || index >= records.length) {
+      await interaction.reply('Invalid index. Please provide a valid todo item number.');
+      return;
+    }
+
+    const todoToUpdate = records[index];
+    const updateData = {};
+
+    const newItem = interaction.options.getString('item');
+    const newDueDate = interaction.options.getString('due_date');
+    const newPriority = interaction.options.getString('priority');
+    const newRecurrence = interaction.options.getString('recurrence');
+    const newCategory = interaction.options.getString('category');
+
+    if (newItem) updateData.item = newItem;
+    if (newDueDate) updateData.dueDate = newDueDate;
+    if (newPriority) updateData.priority = newPriority;
+    if (newRecurrence) updateData.recurrence = newRecurrence;
+    if (newCategory) updateData.category = newCategory;
+
+    await pb.collection('todos').update(todoToUpdate.id, updateData);
+    await interaction.reply(`Updated todo item: ${updateData.item || todoToUpdate.item}`);
+  } catch (error) {
+    console.error('Error updating todo item:', error);
+    await interaction.reply('Failed to update todo item. Please try again.');
   }
-
-  const updatedTodo = { ...todos[index] };
-  const newItem = interaction.options.getString('item');
-  const newDueDate = interaction.options.getString('due_date');
-  const newPriority = interaction.options.getString('priority');
-  const newRecurrence = interaction.options.getString('recurrence');
-  const newCategory = interaction.options.getString('category');
-
-  if (newItem) updatedTodo.item = newItem;
-  if (newDueDate) updatedTodo.dueDate = newDueDate;
-  if (newPriority) updatedTodo.priority = newPriority;
-  if (newRecurrence) updatedTodo.recurrence = newRecurrence;
-  if (newCategory) updatedTodo.category = newCategory;
-
-  todos[index] = updatedTodo;
-  saveTodos(todos);
-
-  await interaction.reply(`Updated todo item: ${updatedTodo.item}`);
 }
 
-function checkRecurringTasks() {
-  const todos = loadTodos();
+async function checkRecurringTasks() {
   const today = new Date().toISOString().split('T')[0];
   
-  todos.forEach(todo => {
-    if (todo.recurrence && todo.dueDate === today) {
+  try {
+    const records = await pb.collection('todos').getFullList({
+      filter: `recurrence != "" && dueDate = "${today}"`,
+    });
+
+    for (const todo of records) {
       const newTodo = { ...todo };
       if (todo.recurrence === 'daily') {
         newTodo.dueDate = new Date(new Date(today).getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -220,31 +241,36 @@ function checkRecurringTasks() {
         nextMonth.setMonth(nextMonth.getMonth() + 1);
         newTodo.dueDate = nextMonth.toISOString().split('T')[0];
       }
-      todos.push(newTodo);
+      await pb.collection('todos').create(newTodo);
     }
-  });
-
-  saveTodos(todos);
+  } catch (error) {
+    console.error('Error checking recurring tasks:', error);
+  }
 }
 
 async function checkReminders() {
-    const todos = loadTodos();
-    const now = new Date();
-    const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-    
-    for (const todo of todos) {
-      if (todo.dueDate && todo.userId) {
-        const dueDate = new Date(todo.dueDate);
-        if (dueDate.toDateString() === tomorrow.toDateString()) {
-          try {
-            const user = await client.users.fetch(todo.userId);
-            await user.send(`Reminder: Your task "${todo.item}" is due tomorrow!`);
-            console.log(`Sent reminder to user ${todo.userId} for task "${todo.item}"`);
-          } catch (error) {
-            console.error(`Failed to send reminder to user ${todo.userId}:`, error);
-          }
+  const now = new Date();
+  const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+  const tomorrowDate = tomorrow.toISOString().split('T')[0];
+
+  try {
+    const records = await pb.collection('todos').getFullList({
+      filter: `dueDate = "${tomorrowDate}"`,
+    });
+
+    for (const todo of records) {
+      if (todo.userId) {
+        try {
+          const user = await client.users.fetch(todo.userId);
+          await user.send(`Reminder: Your task "${todo.item}" is due tomorrow!`);
+          console.log(`Sent reminder to user ${todo.userId} for task "${todo.item}"`);
+        } catch (error) {
+          console.error(`Failed to send reminder to user ${todo.userId}:`, error);
         }
+      }
     }
+  } catch (error) {
+    console.error('Error checking reminders:', error);
   }
 }
 
