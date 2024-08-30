@@ -1,1 +1,44 @@
-[]
+- item: Escape Room
+  dueDate: null
+  priority: null
+  recurrence: null
+  category: null
+  createdAt: '2024-08-30T00:34:45.475Z'
+- item: Gym
+  dueDate: 2024/08/29
+  priority: null
+  recurrence: null
+  category: null
+  createdAt: '2024-08-30T00:35:19.556Z'
+- item: Coding
+  dueDate: '2024-08-29'
+  priority: high
+  recurrence: daily
+  category: Study
+  createdAt: '2024-08-30T00:36:09.699Z'
+- item: Reading
+  dueDate: null
+  priority: null
+  recurrence: null
+  category: Reading
+  createdAt: '2024-08-30T00:37:36.814Z'
+- item: Geo
+  dueDate: '2024-08-29'
+  priority: high
+  recurrence: null
+  category: Study
+  createdAt: '2024-08-30T00:37:49.644Z'
+- item: Dm Function
+  dueDate: null
+  priority: high
+  recurrence: null
+  category: Study
+  createdAt: '2024-08-30T00:41:45.828Z'
+  userId: '639195093873721356'
+- item: Dm Function
+  dueDate: null
+  priority: null
+  recurrence: null
+  category: null
+  createdAt: '2024-08-30T00:44:24.113Z'
+  userId: '639195093873721356'

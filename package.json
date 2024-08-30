@@ -6,6 +6,7 @@
     "dotenv": "^16.4.5",
     "fs": "^0.0.1-security",
     "js-yaml": "^4.1.0",
+    "node-cron": "^3.0.3",
     "yaml": "^2.5.0"
   }
 }
